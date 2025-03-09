@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 import nltk
 from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
+from nltk.stem import WordNetLemmatizer, PorterStemmer
 from sklearn.metrics import f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import Pipeline
@@ -30,6 +30,7 @@ nltk.download('stopwords')
 
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
+stemmer = PorterStemmer()
 
 # TODO: Replace with your Student NET ID
 _NAME = "HuangFengrui"
@@ -77,42 +78,63 @@ def generate_result(test, y_pred, filename):
     test.drop(columns=['Text'], inplace=True)
     test.to_csv(filename, index=False)
 
-def custom_preprocessor(text):
+def custom_preprocessor_lemmatize(text):
     text = text.lower()
-    text = re.sub(r'\d+', '', text)  # Remove numbers
+    text = re.sub(r'\d+', '', text)
     text = re.sub(f'[{re.escape(string.punctuation)}]', '', text)
     words = text.split()
-    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]  # Lemmatization & stopword removal
+    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
+    return words
+
+def custom_preprocessor_stem(text):
+    text = text.lower()
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(f'[{re.escape(string.punctuation)}]', '', text)
+    words = text.split()
+    words = [stemmer.stem(word) for word in words if word not in stop_words]
     return words
 
 def main():
     ''' load train, val, and test data '''
     train = pd.read_csv('train.csv')
-    X = train['Text'].apply(custom_preprocessor)
+    # Try lemmatization:
+    X_lemmatize = train['Text'].apply(custom_preprocessor_lemmatize)
+    # Try stemming:
+    X_stem = train['Text'].apply(custom_preprocessor_stem)
     y = train['Verdict']
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    model = LogisticRegression(max_iter=500) # TODO: Define your model here
-
-    # preprocess the data
+    
+    # Use either one for training. For example, to test the lemmatizer version:
+    X_train, X_val, y_train, y_val = train_test_split(X_lemmatize, y, test_size=0.2, random_state=42, stratify=y)
+    
+    model = LogisticRegression(max_iter=500)
     pipeline = Pipeline([
         ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1)),
         ('classifier', model)
     ])
-
     train_model(pipeline, X_train, y_train)
-    # test your model
-    y_train_pred = predict(pipeline, X_train)
+    
     y_val_pred = predict(pipeline, X_val)
-
-    # Use f1-macro as the metric
-    score_train = f1_score(y_train, y_train_pred, average='macro')
     score_val = f1_score(y_val, y_val_pred, average='macro')
-    print('score on training = {}'.format(score_train))
-    print('score on validation = {}'.format(score_val))
+    print('Validation score (lemmatization) = {}'.format(score_val))
+    
+    # Repeat the procedure with X_stem to compare:
+    X_train_stem, X_val_stem, y_train, y_val = train_test_split(X_stem, y, test_size=0.2, random_state=42, stratify=y)
+    
+    pipeline_stem = Pipeline([
+        ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1)),
+        ('classifier', model)
+    ])
+    train_model(pipeline_stem, X_train_stem, y_train)
+    
+    y_val_pred_stem = predict(pipeline_stem, X_val_stem)
+    score_val_stem = f1_score(y_val, y_val_pred_stem, average='macro')
+    print('Validation score (stemming) = {}'.format(score_val_stem))
 
+    # Continue with the test predictions using the best preprocessing method...
+    
     # generate prediction on test data
     test = pd.read_csv('test.csv')
-    X_test = test['Text'].apply(custom_preprocessor)
+    X_test = test['Text'].apply(custom_preprocessor_lemmatize)  # or custom_preprocessor_stem
     y_test_pred = predict(pipeline, X_test)
     
     output_filename = f"A2_{_NAME}_{_STUDENT_NUM}.csv"
