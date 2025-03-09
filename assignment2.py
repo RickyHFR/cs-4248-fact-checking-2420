@@ -13,6 +13,7 @@ reference your code with your writeup.
 import re
 import string
 import pandas as pd
+import numpy as np
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
@@ -22,6 +23,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from gensim.models import Word2Vec
+from sklearn.base import BaseEstimator, TransformerMixin
 
 nltk.download('wordnet')
 nltk.download('stopwords')
@@ -36,6 +38,34 @@ _STUDENT_NUM = 'E1155392'
 def train_model(pipeline, X_train, y_train):
     ''' TODO: train your model based on the training data '''
     pipeline.fit(X_train, y_train)
+
+class Word2VecTransformer(BaseEstimator, TransformerMixin):
+    """Custom transformer that converts tokenized text into Word2Vec embeddings."""
+
+    def __init__(self, vector_size=100, window=5, min_count=1):
+        self.vector_size = vector_size
+        self.window = window
+        self.min_count = min_count
+        self.model = None  # Word2Vec model
+
+    def fit(self, X, y=None):
+        """Train a Word2Vec model using tokenized text."""
+        sentences = [text for text in X]  # X is already tokenized lists
+        self.model = Word2Vec(sentences, vector_size=self.vector_size, window=self.window, min_count=self.min_count, workers=4)
+        return self  # Return self to allow chaining
+
+    def transform(self, X):
+        """Convert text into embeddings by averaging word vectors."""
+        return np.array([self.text_to_embedding(words) for words in X])
+
+    def text_to_embedding(self, words):
+        """Compute the average Word2Vec embedding for a given text."""
+        if not self.model or not words:
+            return np.zeros(self.vector_size)  # Return zero vector if no model or words exist
+        valid_words = [word for word in words if word in self.model.wv]
+        if not valid_words:
+            return np.zeros(self.vector_size)
+        return np.mean([self.model.wv[word] for word in valid_words], axis=0)
 
 def predict(pipeline, X_test):
     ''' TODO: make your prediction here '''
@@ -53,41 +83,40 @@ def custom_preprocessor(text):
     text = re.sub(f'[{re.escape(string.punctuation)}]', '', text)
     words = text.split()
     words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]  # Lemmatization & stopword removal
-    return ' '.join(words)
+    return words
 
 def main():
     ''' load train, val, and test data '''
     train = pd.read_csv('train.csv')
-    X = train['Text']
+    X = train['Text'].apply(custom_preprocessor)
     y = train['Verdict']
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     model = LogisticRegression(max_iter=500) # TODO: Define your model here
 
     # preprocess the data
-    vectorizer = TfidfVectorizer(preprocessor=custom_preprocessor, stop_words='english', ngram_range=(1,2))
     pipeline = Pipeline([
-        ('vectorizer', vectorizer),
+        ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1)),
         ('classifier', model)
     ])
 
     train_model(pipeline, X_train, y_train)
     # test your model
-    y_pred = predict(pipeline, X_train)
+    y_train_pred = predict(pipeline, X_train)
     y_val_pred = predict(pipeline, X_val)
 
     # Use f1-macro as the metric
-    score_train = f1_score(y_train, y_pred, average='macro')
+    score_train = f1_score(y_train, y_train_pred, average='macro')
     score_val = f1_score(y_val, y_val_pred, average='macro')
     print('score on training = {}'.format(score_train))
     print('score on validation = {}'.format(score_val))
 
     # generate prediction on test data
     test = pd.read_csv('test.csv')
-    X_test = test['Text']
-    y_pred = predict(pipeline, X_test)
+    X_test = test['Text'].apply(custom_preprocessor)
+    y_test_pred = predict(pipeline, X_test)
     
     output_filename = f"A2_{_NAME}_{_STUDENT_NUM}.csv"
-    generate_result(test, y_pred, output_filename)
+    generate_result(test, y_test_pred, output_filename)
     
 # Allow the main class to be invoked if run as a file.
 if __name__ == "__main__":
