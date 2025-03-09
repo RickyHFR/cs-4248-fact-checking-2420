@@ -19,7 +19,7 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer, PorterStemmer
 from sklearn.metrics import f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from gensim.models import Word2Vec
@@ -94,52 +94,55 @@ def custom_preprocessor_stem(text):
     words = [stemmer.stem(word) for word in words if word not in stop_words]
     return words
 
+# Transformer to convert list of tokens into a space-separated string.
+class TokensToStringTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X, y=None):
+        return [' '.join(tokens) for tokens in X]
+
 def main():
     ''' load train, val, and test data '''
     train = pd.read_csv('train.csv')
-    # Try lemmatization:
-    X_lemmatize = train['Text'].apply(custom_preprocessor_lemmatize)
-    # Try stemming:
+    # Use stemming as preprocessor:
     X_stem = train['Text'].apply(custom_preprocessor_stem)
     y = train['Verdict']
     
-    # Use either one for training. For example, to test the lemmatizer version:
-    X_train, X_val, y_train, y_val = train_test_split(X_lemmatize, y, test_size=0.2, random_state=42, stratify=y)
+    # Split the preprocessed tokens for training and validation:
+    X_train, X_val, y_train, y_val = train_test_split(X_stem, y, test_size=0.2, random_state=42, stratify=y)
     
-    model = LogisticRegression(max_iter=500)
-    pipeline = Pipeline([
-        ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1)),
-        ('classifier', model)
+    # Define a FeatureUnion to combine Word2Vec and TF-IDF features.
+    union_pipeline = FeatureUnion([
+        ('w2v', Pipeline([
+            ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1))
+        ])),
+        ('tfidf', Pipeline([
+            ('tokens2string', TokensToStringTransformer()),
+            ('tfidf', TfidfVectorizer(ngram_range=(1, 2)))
+        ]))
     ])
+    
+    # Create the final pipeline that feeds the union of features into the classifier.
+    pipeline = Pipeline([
+        ('features', union_pipeline),
+        ('classifier', LogisticRegression(max_iter=500))
+    ])
+    
+    # Train the model.
     train_model(pipeline, X_train, y_train)
     
+    # Evaluate on the validation set.
     y_val_pred = predict(pipeline, X_val)
     score_val = f1_score(y_val, y_val_pred, average='macro')
-    print('Validation score (lemmatization) = {}'.format(score_val))
+    print('Validation score (stemming + W2V+TFIDF) = {}'.format(score_val))
     
-    # Repeat the procedure with X_stem to compare:
-    X_train_stem, X_val_stem, y_train, y_val = train_test_split(X_stem, y, test_size=0.2, random_state=42, stratify=y)
-    
-    pipeline_stem = Pipeline([
-        ('word2vec', Word2VecTransformer(vector_size=100, window=5, min_count=1)),
-        ('classifier', model)
-    ])
-    train_model(pipeline_stem, X_train_stem, y_train)
-    
-    y_val_pred_stem = predict(pipeline_stem, X_val_stem)
-    score_val_stem = f1_score(y_val, y_val_pred_stem, average='macro')
-    print('Validation score (stemming) = {}'.format(score_val_stem))
-
-    # Continue with the test predictions using the best preprocessing method...
-    
-    # generate prediction on test data
+    # For test predictions, apply stemming preprocessor, predict, and generate result CSV.
     test = pd.read_csv('test.csv')
-    X_test = test['Text'].apply(custom_preprocessor_lemmatize)  # or custom_preprocessor_stem
+    X_test = test['Text'].apply(custom_preprocessor_stem)
     y_test_pred = predict(pipeline, X_test)
     
     output_filename = f"A2_{_NAME}_{_STUDENT_NUM}.csv"
     generate_result(test, y_test_pred, output_filename)
     
-# Allow the main class to be invoked if run as a file.
 if __name__ == "__main__":
     main()
