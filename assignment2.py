@@ -13,11 +13,20 @@ reference your code with your writeup.
 import re
 import string
 import pandas as pd
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 from sklearn.metrics import f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+
+nltk.download('wordnet')
+nltk.download('stopwords')
+
+stop_words = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
 
 # TODO: Replace with your Student NET ID
 _NAME = "HuangFengrui"
@@ -39,8 +48,11 @@ def generate_result(test, y_pred, filename):
 
 def custom_preprocessor(text):
     text = text.lower()
+    text = re.sub(r'\d+', '', text)  # Remove numbers
     text = re.sub(f'[{re.escape(string.punctuation)}]', '', text)
-    return text
+    words = text.split()
+    words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]  # Lemmatization & stopword removal
+    return ' '.join(words)
 
 def main():
     ''' load train, val, and test data '''
@@ -51,7 +63,7 @@ def main():
     model = LogisticRegression(max_iter=500) # TODO: Define your model here
 
     # preprocess the data
-    vectorizer = TfidfVectorizer(preprocessor=custom_preprocessor, stop_words='english')
+    vectorizer = TfidfVectorizer(preprocessor=custom_preprocessor, stop_words='english', ngram_range=(1,2))
     pipeline = Pipeline([
         ('vectorizer', vectorizer),
         ('classifier', model)
