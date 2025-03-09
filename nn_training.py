@@ -36,7 +36,6 @@ _STUDENT_NUM = 'E1155392'
 
 def custom_preprocessor_stem(text):
     """Tokenize text after stemming and basic cleaning."""
-    text = re.sub(r'\d+', '', text) # Remove numbers
     text = re.sub(f'[{re.escape(string.punctuation)}]', '', text) # Remove punctuation
     words = text.split() 
     words = [stemmer.stem(word, to_lowercase=True) for word in words if word not in stop_words]
@@ -83,7 +82,7 @@ class FactCheckNet(nn.Module):
         out = self.fc2(out)
         return out
 
-def train_model_torch(model, optimizer, criterion, X_train, y_train, device, epochs=10, batch_size=64):
+def train_model_torch(model, optimizer, criterion, X_train, y_train, device, epochs=20, batch_size=64):
     model.train()
     dataset_size = X_train.size(0)
     for epoch in range(epochs):
